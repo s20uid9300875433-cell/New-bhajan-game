@@ -99,10 +99,10 @@ export const LevelSelectScreen: React.FC<LevelSelectScreenProps> = ({
     <div
       className="relative w-full h-full flex flex-col p-4 select-none bg-cover bg-center overflow-hidden"
       style={{
-        backgroundImage: `url('${activeBg.imageUrl}'), ${activeBg.fallbackGradient}`,
+        background: activeBg.fallbackGradient,
+        backgroundImage: `url('${activeBg.imageUrl}')`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
       }}
     >
       <div className="absolute inset-0 bg-slate-950/55 pointer-events-none" />
