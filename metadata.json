@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Hexa Color Quest",
+  "description": "A polished 2D hexagon slide-and-merge puzzle game featuring 100 progressive levels, smooth tactile interactions, and juicy animations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
