@@ -58,16 +58,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     <div
       className="relative w-full h-full flex flex-col items-center justify-between p-4 select-none overflow-hidden bg-cover bg-center bg-no-repeat"
       style={{
-        background: activeBg.fallbackGradient,
-        backgroundImage: `url('${activeBg.imageUrl}')`,
+        backgroundImage: `url('${activeBg.imageUrl}'), ${activeBg.fallbackGradient}`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
       }}
     >
       {/* Selected Theme Ambient Overlay */}
       <div
         className="absolute inset-0 pointer-events-none"
-        style={{ background: activeBg.overlayGradient }}
+        style={{ backgroundImage: activeBg.overlayGradient }}
       />
 
       {/* Top Bar Status Strip: Stars, Coins, Gems, Audio & Settings */}

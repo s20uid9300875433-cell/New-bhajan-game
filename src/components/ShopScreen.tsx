@@ -111,7 +111,7 @@ export const ShopScreen: React.FC<ShopScreenProps> = ({
       previewNode: (
         <div
           className="w-28 h-36 rounded-2xl overflow-hidden border border-white/25 relative shadow-lg flex items-center justify-center"
-          style={{ background: bg.fallbackGradient }}
+          style={{ backgroundImage: bg.fallbackGradient }}
         >
           {!brokenImages[bg.id] && (
             <img
@@ -174,10 +174,10 @@ export const ShopScreen: React.FC<ShopScreenProps> = ({
     <div
       className="relative w-full h-full flex flex-col p-3.5 select-none overflow-hidden bg-cover bg-center"
       style={{
-        background: activeBg.fallbackGradient,
-        backgroundImage: `url('${activeBg.imageUrl}')`,
+        backgroundImage: `url('${activeBg.imageUrl}'), ${activeBg.fallbackGradient}`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
       }}
     >
       {/* Readable Contrast Overlay */}
@@ -321,7 +321,7 @@ export const ShopScreen: React.FC<ShopScreenProps> = ({
                   {/* High-Quality 9:16 Preview Window */}
                   <div
                     className="relative w-full h-32 overflow-hidden flex items-center justify-center"
-                    style={{ background: bg.fallbackGradient }}
+                    style={{ backgroundImage: bg.fallbackGradient }}
                   >
                     {!brokenImages[bg.id] && (
                       <img

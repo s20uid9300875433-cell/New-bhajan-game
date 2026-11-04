@@ -858,16 +858,16 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     <div
       className="relative w-full h-full flex flex-col justify-between p-3 select-none overflow-hidden bg-cover bg-center bg-no-repeat"
       style={{
-        background: activeBg.fallbackGradient,
-        backgroundImage: `url('${activeBg.imageUrl}')`,
+        backgroundImage: `url('${activeBg.imageUrl}'), ${activeBg.fallbackGradient}`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
       }}
     >
       {/* Selected Theme Ambient Overlay */}
       <div
         className="absolute inset-0 pointer-events-none"
-        style={{ background: activeBg.overlayGradient }}
+        style={{ backgroundImage: activeBg.overlayGradient }}
       />
 
       {/* TOP GAMEPLAY HUD BAR (Home, Pause, Level, Coins, Settings, Score & Objective) */}
