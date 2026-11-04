@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { BoardTile, HexCoord, TileTier } from '../types/game';
+import { BoardTile, GraphicsQuality, HexCoord, TileTier } from '../types/game';
 import {
   generateGridCoords,
   getHexCornerPoints,
@@ -7,6 +7,12 @@ import {
   hexToPixel,
 } from '../utils/hexMath';
 import { getTierInfo } from '../data/tiers';
+import {
+  DEFAULT_BACKGROUND_ID,
+  DEFAULT_TILE_SKIN_ID,
+  getBackgroundById,
+  getTileSkinById,
+} from '../data/shopCatalog';
 import { HintSuggestion } from '../utils/solver';
 
 export interface SparkleParticle {
@@ -19,7 +25,7 @@ export interface SparkleParticle {
   size: number;
 }
 
-// Helper to render the embossed symbol (Heart, Star, Clover, Moon, Crown) matching reference image
+// Helper to render the embossed symbol (Heart, Star, Clover, Hexa, Moon, Crown)
 export const renderEmbossedSymbol = (
   symbolType: string,
   cx: number,
@@ -143,6 +149,96 @@ export const renderEmbossedSymbol = (
   }
 };
 
+/**
+ * Reusable standalone Stacked 3D Hexagon Tile SVG for Shop Previews & Drag Proxy
+ */
+export const StackedHexPreview: React.FC<{
+  tier: TileTier;
+  skinId?: string;
+  sizePx?: number;
+  uid?: string;
+}> = React.memo(({ tier, skinId = DEFAULT_TILE_SKIN_ID, sizePx = 48, uid = 'preview' }) => {
+  const tierInfo = getTierInfo(tier, skinId);
+  const skin = getTileSkinById(skinId);
+  const gradId = `hexPrevGrad-${uid}-${skinId}-${tier}`;
+
+  return (
+    <svg
+      width={sizePx}
+      height={Math.round(sizePx * 1.12)}
+      viewBox="0 0 100 115"
+      className="overflow-visible select-none"
+    >
+      <defs>
+        <linearGradient id={gradId} x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor={tierInfo.lightColor} />
+          <stop offset="25%" stopColor={tierInfo.color} />
+          <stop offset="85%" stopColor={tierInfo.shadowColor} />
+          <stop offset="100%" stopColor="#04060c" />
+        </linearGradient>
+      </defs>
+
+      {/* Layer 3: Bottom Ridge */}
+      <polygon
+        points="50,15 93,40 93,90 50,115 7,90 7,40"
+        fill={tierInfo.ridgeColor}
+        stroke="#020617"
+        strokeWidth="1.2"
+      />
+
+      {/* Layer 2: Mid Ridge */}
+      <polygon
+        points="50,11 93,36 93,86 50,111 7,86 7,36"
+        fill={tierInfo.shadowColor}
+        stroke={tierInfo.ridgeColor}
+        strokeWidth="0.8"
+      />
+      <polygon
+        points="50,10 93,35 93,85 50,110 7,85 7,35"
+        fill="none"
+        stroke={tierInfo.ridgeHighlight}
+        strokeWidth="1"
+        opacity="0.5"
+      />
+
+      {/* Layer 1: Upper Ridge */}
+      <polygon
+        points="50,7 93,32 93,82 50,107 7,82 7,32"
+        fill={tierInfo.color}
+        stroke={tierInfo.shadowColor}
+        strokeWidth="0.8"
+      />
+      <polygon
+        points="50,6 93,31 93,81 50,106 7,81 7,31"
+        fill="none"
+        stroke={tierInfo.lightColor}
+        strokeWidth="1.2"
+        opacity="0.62"
+      />
+
+      {/* Top Glossy Hex Face */}
+      <polygon
+        points="50,3 93,28 93,78 50,103 7,78 7,28"
+        fill={`url(#${gradId})`}
+        stroke={skin.rimStroke}
+        strokeWidth="2"
+      />
+
+      {/* Top Specular Arc */}
+      <polygon
+        points="50,8 88,30 88,73 50,96 12,73 12,30"
+        fill="none"
+        stroke={skin.specularStroke}
+        strokeWidth="1.5"
+        strokeDasharray="26 36"
+      />
+
+      {/* Embossed Symbol */}
+      {renderEmbossedSymbol(tierInfo.symbolType, 50, 52, 34, tierInfo.ridgeColor)}
+    </svg>
+  );
+});
+
 interface HexagonGridProps {
   radius: number;
   blockedCoords?: HexCoord[];
@@ -158,9 +254,12 @@ interface HexagonGridProps {
   hoverDropCoord?: HexCoord | null;
   draggingTier?: TileTier | null;
   svgRef?: React.RefObject<SVGSVGElement | null>;
+  tileSkinId?: string;
+  backgroundId?: string;
+  graphicsQuality?: GraphicsQuality;
 }
 
-export const HexagonGrid: React.FC<HexagonGridProps> = ({
+const HexagonGridInner: React.FC<HexagonGridProps> = ({
   radius,
   blockedCoords = [],
   tiles,
@@ -169,19 +268,19 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
   hint,
   onTileSelect,
   onCellClick,
-  isMerging,
   isShaking = false,
   sparkles = [],
   hoverDropCoord = null,
   draggingTier = null,
   svgRef,
+  tileSkinId = DEFAULT_TILE_SKIN_ID,
+  backgroundId = DEFAULT_BACKGROUND_ID,
+  graphicsQuality = 'high',
 }) => {
-  // Generate all legal grid coordinates
   const gridCoords = useMemo(() => {
     return generateGridCoords(radius, blockedCoords);
   }, [radius, blockedCoords]);
 
-  // Fast tile lookup map
   const tilesMap = useMemo(() => {
     const map = new Map<string, BoardTile>();
     tiles.forEach(t => map.set(hexKey(t.q, t.r), t));
@@ -192,18 +291,38 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
     return new Set(validTargets.map(c => hexKey(c.q, c.r)));
   }, [validTargets]);
 
-  // Dynamic geometry calculation
-  // Radius 2: ~19 hexes, radius 3: ~37 hexes
+  const skin = useMemo(() => getTileSkinById(tileSkinId), [tileSkinId]);
+  const bgTheme = useMemo(() => getBackgroundById(backgroundId), [backgroundId]);
+
   const hexSize = radius === 2 ? 46 : 38;
   const svgWidth = 400;
   const svgHeight = 425;
-  const center = { x: svgWidth / 2, y: svgHeight / 2 - 4 };
+  const center = useMemo(() => ({ x: svgWidth / 2, y: svgHeight / 2 - 4 }), []);
 
   const getPointsStr = (c: { x: number; y: number }, size: number) => {
     return getHexCornerPoints(c, size)
       .map(pt => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`)
       .join(' ');
   };
+
+  // Precompute static base socket polygons for 60 FPS frame budget
+  const precomputedSockets = useMemo(() => {
+    return gridCoords.map(coord => {
+      const key = hexKey(coord.q, coord.r);
+      const pos = hexToPixel(coord, hexSize, center);
+      return {
+        coord,
+        key,
+        pos,
+        shadowPts: getPointsStr({ x: pos.x, y: pos.y + 2 }, hexSize - 3),
+        mainPts: getPointsStr(pos, hexSize - 3),
+        bevelPts: getPointsStr(pos, hexSize - 5),
+      };
+    });
+  }, [gridCoords, hexSize, center]);
+
+  const useSvgDropShadow = graphicsQuality !== 'low';
+  const showSpecularArc = graphicsQuality !== 'low';
 
   return (
     <div
@@ -214,35 +333,27 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
       <svg
         ref={svgRef}
         viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-        className="w-full h-full overflow-visible drop-shadow-[0_20px_40px_rgba(0,0,0,0.7)]"
+        className={`w-full h-full overflow-visible ${
+          graphicsQuality === 'high' ? 'drop-shadow-[0_18px_36px_rgba(0,0,0,0.65)]' : ''
+        }`}
       >
         <defs>
-          {/* Radial glow for valid target sockets */}
           <radialGradient id="targetGlow" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.5" />
             <stop offset="65%" stopColor="#0284C7" stopOpacity="0.18" />
             <stop offset="100%" stopColor="#0284C7" stopOpacity="0" />
           </radialGradient>
 
-          {/* Golden glow for hint socket */}
           <radialGradient id="hintGlow" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="#FDE047" stopOpacity="0.8" />
             <stop offset="60%" stopColor="#F59E0B" stopOpacity="0.35" />
             <stop offset="100%" stopColor="#F59E0B" stopOpacity="0" />
           </radialGradient>
 
-          {/* Ambient board bevel gradient */}
-          <linearGradient id="cellSocketGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#0f172a" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="#090d16" stopOpacity="0.95" />
-          </linearGradient>
-
-          {/* Gradients for each 2.5D tile tier (multi-stop glossy lacquer) */}
           {([1, 2, 3, 4, 5, 6] as TileTier[]).map(tier => {
-            const info = getTierInfo(tier);
+            const info = getTierInfo(tier, tileSkinId);
             return (
-              <React.Fragment key={`tier-defs-${tier}`}>
-                {/* Top glossy face */}
+              <React.Fragment key={`tier-defs-${tileSkinId}-${tier}`}>
                 <linearGradient
                   id={`tierFaceGrad-${tier}`}
                   x1="0%"
@@ -255,64 +366,46 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
                   <stop offset="85%" stopColor={info.shadowColor} />
                   <stop offset="100%" stopColor="#050811" />
                 </linearGradient>
-
-                {/* 2.5D Extruded 3D bevel rim */}
-                <linearGradient
-                  id={`tierExtrusionGrad-${tier}`}
-                  x1="0%"
-                  y1="0%"
-                  x2="0%"
-                  y2="100%"
-                >
-                  <stop offset="0%" stopColor={info.shadowColor} />
-                  <stop offset="100%" stopColor="#04060b" />
-                </linearGradient>
               </React.Fragment>
             );
           })}
 
-          {/* 2.5D Soft Realistic Floor Shadow */}
-          <filter id="hex3DShadow" x="-30%" y="-30%" width="160%" height="170%">
-            <feDropShadow dx="0" dy="6" stdDeviation="4.5" floodColor="#000000" floodOpacity="0.6" />
-          </filter>
-
-          {/* Lifted Shadow for Selected Tile */}
-          <filter id="hexLiftedShadow" x="-40%" y="-40%" width="180%" height="190%">
-            <feDropShadow dx="0" dy="12" stdDeviation="8" floodColor="#000000" floodOpacity="0.8" />
-          </filter>
+          {useSvgDropShadow && (
+            <>
+              <filter id="hex3DShadow" x="-30%" y="-30%" width="160%" height="170%">
+                <feDropShadow dx="0" dy="6" stdDeviation="4.5" floodColor="#000000" floodOpacity="0.6" />
+              </filter>
+              <filter id="hexLiftedShadow" x="-40%" y="-40%" width="180%" height="190%">
+                <feDropShadow dx="0" dy="12" stdDeviation="8" floodColor="#000000" floodOpacity="0.8" />
+              </filter>
+            </>
+          )}
         </defs>
 
         {/* 1. Base Grid Slots / Empty Sockets */}
-        {gridCoords.map(coord => {
-          const key = hexKey(coord.q, coord.r);
-          const pos = hexToPixel(coord, hexSize, center);
+        {precomputedSockets.map(({ coord, key, pos, shadowPts, mainPts, bevelPts }) => {
           const isTarget = validTargetsSet.has(key);
           const isHintTarget = hint && coord.q === hint.to.q && coord.r === hint.to.r;
-          const isHoverDrop = hoverDropCoord && coord.q === hoverDropCoord.q && coord.r === hoverDropCoord.r;
+          const isHoverDrop =
+            hoverDropCoord && coord.q === hoverDropCoord.q && coord.r === hoverDropCoord.r;
           const hasTile = tilesMap.has(key);
 
           return (
             <g
               key={`base-${key}`}
               onClick={() => onCellClick(coord)}
-              className="cursor-pointer transition-transform duration-200"
+              className="cursor-pointer"
             >
-              {/* Recessed Socket Shadow */}
-              <polygon
-                points={getPointsStr({ x: pos.x, y: pos.y + 2 }, hexSize - 3)}
-                fill="#050811"
-                opacity="0.85"
-              />
+              <polygon points={shadowPts} fill="#050811" opacity="0.82" />
 
-              {/* Socket Surface (Frosted Glass against Ocean Background) */}
               <polygon
-                points={getPointsStr(pos, hexSize - 3)}
+                points={mainPts}
                 fill={
                   isHoverDrop
                     ? 'rgba(56, 189, 248, 0.45)'
                     : isTarget
                     ? 'rgba(14, 165, 233, 0.35)'
-                    : 'rgba(12, 38, 64, 0.55)'
+                    : bgTheme.socketFill
                 }
                 stroke={
                   isHintTarget
@@ -321,70 +414,38 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
                     ? '#38BDF8'
                     : isTarget
                     ? '#38BDF8'
-                    : 'rgba(255, 255, 255, 0.45)'
+                    : bgTheme.socketStroke
                 }
                 strokeWidth={isHintTarget || isHoverDrop ? 2.8 : isTarget ? 2.2 : 1.4}
                 strokeDasharray={isTarget ? '5 2.5' : undefined}
-                className="transition-colors duration-150"
               />
 
-              {/* Inner Socket Bevel Rim */}
               <polygon
-                points={getPointsStr(pos, hexSize - 5)}
+                points={bevelPts}
                 fill="none"
-                stroke="rgba(0, 0, 0, 0.4)"
+                stroke="rgba(0, 0, 0, 0.38)"
                 strokeWidth="1"
               />
 
-              {/* Pulsing Target Aura if valid move/drop destination */}
               {isTarget && !hasTile && (
                 <g>
-                  <circle
-                    cx={pos.x}
-                    cy={pos.y}
-                    r={hexSize * 0.75}
-                    fill="url(#targetGlow)"
-                    className="animate-pulse"
-                  />
-                  <circle
-                    cx={pos.x}
-                    cy={pos.y}
-                    r={5}
-                    fill="#38BDF8"
-                    className="animate-ping opacity-75"
-                  />
-                  <circle
-                    cx={pos.x}
-                    cy={pos.y}
-                    r={3.5}
-                    fill="#E0F2FE"
-                  />
+                  <circle cx={pos.x} cy={pos.y} r={hexSize * 0.72} fill="url(#targetGlow)" />
+                  <circle cx={pos.x} cy={pos.y} r={3.5} fill="#E0F2FE" />
                 </g>
               )}
 
-              {/* Golden Hint Ring if hint points here */}
               {isHintTarget && (
-                <g>
-                  <circle
-                    cx={pos.x}
-                    cy={pos.y}
-                    r={hexSize * 0.8}
-                    fill="url(#hintGlow)"
-                    className="animate-pulse"
-                  />
-                </g>
+                <circle cx={pos.x} cy={pos.y} r={hexSize * 0.78} fill="url(#hintGlow)" />
               )}
 
-              {/* Ghost Preview when dragging over an empty socket */}
               {isHoverDrop && draggingTier && !hasTile && (
-                <g opacity="0.65" className="animate-pulse">
-                  <polygon
-                    points={getPointsStr(pos, hexSize - 3)}
-                    fill={`url(#tierFaceGrad-${draggingTier})`}
-                    stroke="#FFFFFF"
-                    strokeWidth="1.5"
-                  />
-                </g>
+                <polygon
+                  points={mainPts}
+                  fill={`url(#tierFaceGrad-${draggingTier})`}
+                  stroke="#FFFFFF"
+                  strokeWidth="1.5"
+                  opacity="0.68"
+                />
               )}
             </g>
           );
@@ -393,16 +454,20 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
         {/* 2. Thick 3D Hexagonal Tiles Layer with Horizontal Layered Ridges */}
         {tiles.map(tile => {
           const pos = hexToPixel({ q: tile.q, r: tile.r }, hexSize, center);
-          const isSelected = selectedCoord && selectedCoord.q === tile.q && selectedCoord.r === tile.r;
-          const isHintSource = hint && hint.sourceType === 'board' && hint.from && tile.q === hint.from.q && tile.r === hint.from.r;
-          const tierInfo = getTierInfo(tile.tier);
+          const isSelected =
+            selectedCoord && selectedCoord.q === tile.q && selectedCoord.r === tile.r;
+          const isHintSource =
+            hint &&
+            hint.sourceType === 'board' &&
+            hint.from &&
+            tile.q === hint.from.q &&
+            tile.r === hint.from.r;
+          const tierInfo = getTierInfo(tile.tier, tileSkinId);
 
-          // 3D Extrusion parameters: thick layered physical block feel
           const liftY = isSelected ? -8 : 0;
           const totalExtrusion = isSelected ? 15 : 11;
           const currentSize = isSelected ? hexSize - 1 : hexSize - 3;
 
-          // Steps for horizontal layered ridges along the sides
           const ridge3Y = liftY + totalExtrusion;
           const ridge2Y = liftY + totalExtrusion * 0.68;
           const ridge1Y = liftY + totalExtrusion * 0.35;
@@ -411,22 +476,24 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
             <g
               key={tile.id}
               onClick={() => onTileSelect({ q: tile.q, r: tile.r })}
-              className={`cursor-pointer transition-all duration-200 ${
+              className={`cursor-pointer ${
                 tile.isMerging ? 'animate-pop-merge' : 'animate-tile-bounce'
               }`}
               style={{
                 transformOrigin: `${pos.x}px ${pos.y}px`,
-                filter: isSelected ? 'url(#hexLiftedShadow)' : 'url(#hex3DShadow)',
+                filter: useSvgDropShadow
+                  ? isSelected
+                    ? 'url(#hexLiftedShadow)'
+                    : 'url(#hex3DShadow)'
+                  : undefined,
               }}
             >
-              {/* Outer Selection Aura */}
               {isSelected && (
                 <polygon
                   points={getPointsStr({ x: pos.x, y: pos.y + liftY }, currentSize + 4)}
                   fill="none"
                   stroke="#38BDF8"
                   strokeWidth="3.2"
-                  className="animate-pulse"
                 />
               )}
 
@@ -437,13 +504,10 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
                   stroke="#FBBF24"
                   strokeWidth="2.5"
                   strokeDasharray="4 2"
-                  className="animate-pulse"
                 />
               )}
 
-              {/* --- HORIZONTAL LAYERED RIDGES (STACKED SIDES) --- */}
-
-              {/* Layer 3: Bottom-most Layer Ridge & Deep Base Rim */}
+              {/* Layer 3: Bottom-most Layer Ridge */}
               <polygon
                 points={getPointsStr({ x: pos.x, y: pos.y + ridge3Y }, currentSize)}
                 fill={tierInfo.ridgeColor}
@@ -451,7 +515,7 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
                 strokeWidth="1.2"
               />
 
-              {/* Layer 2: Middle Ridge with Highlight Bevel Edge */}
+              {/* Layer 2: Middle Ridge */}
               <polygon
                 points={getPointsStr({ x: pos.x, y: pos.y + ridge2Y }, currentSize)}
                 fill={tierInfo.shadowColor}
@@ -466,7 +530,7 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
                 opacity="0.5"
               />
 
-              {/* Layer 1: Upper Ridge with Highlight Bevel Edge */}
+              {/* Layer 1: Upper Ridge */}
               <polygon
                 points={getPointsStr({ x: pos.x, y: pos.y + ridge1Y }, currentSize)}
                 fill={tierInfo.color}
@@ -481,24 +545,26 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
                 opacity="0.65"
               />
 
-              {/* --- MAIN TOP GLOSSY HEXAGON FACE --- */}
+              {/* Main Top Glossy Hexagon Face */}
               <polygon
                 points={getPointsStr({ x: pos.x, y: pos.y + liftY }, currentSize)}
                 fill={`url(#tierFaceGrad-${tile.tier})`}
-                stroke="rgba(255, 255, 255, 0.7)"
-                strokeWidth="1.6"
+                stroke={skin.rimStroke}
+                strokeWidth="1.7"
               />
 
               {/* Top Specular Curved Highlight Arc */}
-              <polygon
-                points={getPointsStr({ x: pos.x, y: pos.y + liftY - 1.5 }, currentSize * 0.85)}
-                fill="none"
-                stroke="rgba(255, 255, 255, 0.55)"
-                strokeWidth="1.4"
-                strokeDasharray="24 38"
-              />
+              {showSpecularArc && (
+                <polygon
+                  points={getPointsStr({ x: pos.x, y: pos.y + liftY - 1.5 }, currentSize * 0.85)}
+                  fill="none"
+                  stroke={skin.specularStroke}
+                  strokeWidth="1.4"
+                  strokeDasharray="24 38"
+                />
+              )}
 
-              {/* EMBOSSED SYMBOL INSET (HEART, STAR, CLOVER, MOON, CROWN) */}
+              {/* Embossed Symbol Inset */}
               {renderEmbossedSymbol(
                 tierInfo.symbolType,
                 pos.x,
@@ -507,7 +573,7 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
                 tierInfo.ridgeColor
               )}
 
-              {/* Tier Number Pill */}
+              {/* Tier Number Label */}
               <text
                 x={pos.x}
                 y={pos.y + liftY + 12}
@@ -516,8 +582,8 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
                 fill="rgba(255, 255, 255, 0.95)"
                 fontSize="10"
                 fontWeight="900"
-                fontFamily="system-ui, sans-serif"
-                className="select-none pointer-events-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
+                fontFamily="Outfit, system-ui, sans-serif"
+                className="select-none pointer-events-none"
               >
                 T{tile.tier}
               </text>
@@ -525,26 +591,23 @@ export const HexagonGrid: React.FC<HexagonGridProps> = ({
           );
         })}
 
-        {/* 3. Dynamic Sparkle Particles Burst */}
-        {sparkles.map(sp => (
-          <g
-            key={sp.id}
-            className="animate-sparkle pointer-events-none"
-            style={{
-              ['--tx' as string]: `${sp.tx}px`,
-              ['--ty' as string]: `${sp.ty}px`,
-            }}
-          >
-            <circle
-              cx={sp.x}
-              cy={sp.y}
-              r={sp.size}
-              fill={sp.color}
-              filter="drop-shadow(0 0 6px rgba(255,255,255,0.8))"
-            />
-          </g>
-        ))}
+        {/* 3. Dynamic Sparkle Particles Burst (scaled by graphicsQuality) */}
+        {graphicsQuality !== 'low' &&
+          sparkles.map(sp => (
+            <g
+              key={sp.id}
+              className="animate-sparkle pointer-events-none"
+              style={{
+                ['--tx' as string]: `${sp.tx}px`,
+                ['--ty' as string]: `${sp.ty}px`,
+              }}
+            >
+              <circle cx={sp.x} cy={sp.y} r={sp.size} fill={sp.color} />
+            </g>
+          ))}
       </svg>
     </div>
   );
 };
+
+export const HexagonGrid = React.memo(HexagonGridInner);

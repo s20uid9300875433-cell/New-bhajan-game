@@ -1,13 +1,31 @@
 import React from 'react';
-import { Play, Grid, Settings as SettingsIcon, HelpCircle, Volume2, VolumeX, Music, Award, Coins, Sparkles, ChevronRight } from 'lucide-react';
+import {
+  Play,
+  Grid,
+  Settings as SettingsIcon,
+  HelpCircle,
+  Volume2,
+  VolumeX,
+  Music,
+  Award,
+  Coins,
+  Gem,
+  ShoppingBag,
+  Gift,
+  ChevronRight,
+} from 'lucide-react';
 import { audioManager } from '../utils/audioManager';
-import { UserProgress } from '../types/game';
+import { ShopCategory, UserProgress } from '../types/game';
 import { getLevelConfig } from '../data/levels';
+import { getBackgroundById } from '../data/shopCatalog';
+import { getDailyLoginStatus } from '../utils/storage';
 
 interface HomeScreenProps {
   progress: UserProgress;
   onPlay: () => void;
   onLevelSelect: () => void;
+  onOpenShop: (initialCategory?: ShopCategory) => void;
+  onOpenDailyRewards: () => void;
   onOpenSettings: () => void;
   onOpenTutorial: () => void;
   onToggleSound: () => void;
@@ -18,53 +36,89 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   progress,
   onPlay,
   onLevelSelect,
+  onOpenShop,
+  onOpenDailyRewards,
   onOpenSettings,
   onOpenTutorial,
   onToggleSound,
   onToggleMusic,
 }) => {
   const totalStars = Object.values(progress.stars).reduce((acc, s) => acc + s, 0);
-  const currentLevelConfig = getLevelConfig(progress.unlockedLevel);
-  const progressPercent = Math.min(100, Math.round(((progress.unlockedLevel - 1) / 100) * 100));
+  const activePlayLevelId = progress.savedActiveLevel?.levelId ?? progress.unlockedLevel;
+  const currentLevelConfig = getLevelConfig(activePlayLevelId);
+  const activeBg = getBackgroundById(progress.selectedBackground);
+  const dailyStatus = getDailyLoginStatus(progress);
+
+  const isInfiniteUnlocked = progress.unlockedLevel > 100;
+  const chapterProgressPercent = isInfiniteUnlocked
+    ? Math.min(100, Math.round((((progress.unlockedLevel - 1) % 20) / 20) * 100) || 100)
+    : Math.min(100, Math.round(((progress.unlockedLevel - 1) / 100) * 100));
 
   return (
     <div
-      className="relative w-full h-full flex flex-col items-center justify-between p-5 select-none overflow-hidden bg-cover bg-center bg-no-repeat"
+      className="relative w-full h-full flex flex-col items-center justify-between p-4 select-none overflow-hidden bg-cover bg-center bg-no-repeat"
       style={{
-        backgroundImage: `url('/assets/aistudio/94dcd7311cb7c003dc8c2c8f30a006a9_24f28502.jpg')`,
+        background: activeBg.fallbackGradient,
+        backgroundImage: `url('${activeBg.imageUrl}')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
       }}
     >
-      {/* Ambient soft sunlight & rippling water reflection overlay */}
-      <div className="absolute inset-0 bg-gradient-to-b from-sky-400/10 via-transparent to-sky-950/25 pointer-events-none" />
+      {/* Selected Theme Ambient Overlay */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ background: activeBg.overlayGradient }}
+      />
 
-      {/* Top Bar Status Strip */}
-      <div className="w-full flex items-center justify-between z-10">
-        <div className="flex items-center gap-2">
-          {/* Total Stars Badge */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-slate-900/60 backdrop-blur-md border border-white/25 text-amber-300 text-xs font-black shadow-lg">
-            <Award className="w-3.5 h-3.5 fill-current drop-shadow" />
+      {/* Top Bar Status Strip: Stars, Coins, Gems, Audio & Settings */}
+      <div className="w-full flex items-center justify-between gap-1.5 z-10">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Total Stars */}
+          <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-slate-900/75 backdrop-blur-md border border-white/20 text-amber-300 text-xs font-black shadow-lg">
+            <Award className="w-3.5 h-3.5 fill-current shrink-0" />
             <span className="tabular-nums">{totalStars}</span>
-            <span className="text-[10px] text-slate-300 font-semibold">/300</span>
           </div>
 
-          {/* Coins Badge */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-slate-900/60 backdrop-blur-md border border-white/25 text-amber-300 text-xs font-black shadow-lg">
-            <Coins className="w-3.5 h-3.5 text-amber-300" />
-            <span className="tabular-nums">{progress.coins}</span>
-          </div>
+          {/* Coins Balance (tappable to open Shop) */}
+          <button
+            onClick={() => {
+              audioManager.playClick();
+              onOpenShop('backgrounds');
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-slate-900/75 hover:bg-slate-900 backdrop-blur-md border border-amber-400/35 text-amber-300 text-xs font-black shadow-lg active:scale-95 transition-all"
+          >
+            <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="tabular-nums">{progress.coins.toLocaleString()}</span>
+          </button>
+
+          {/* Gems Balance (tappable to open Shop) */}
+          <button
+            onClick={() => {
+              audioManager.playClick();
+              onOpenShop('tiles');
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-slate-900/75 hover:bg-slate-900 backdrop-blur-md border border-cyan-400/35 text-cyan-300 text-xs font-black shadow-lg active:scale-95 transition-all"
+          >
+            <Gem className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="tabular-nums">{progress.gems.toLocaleString()}</span>
+          </button>
         </div>
 
-        {/* Audio Quick Toggles */}
-        <div className="flex items-center gap-1.5">
+        {/* Audio & Settings Quick Controls */}
+        <div className="flex items-center gap-1">
           <button
             onClick={() => {
               audioManager.playClick();
               onToggleSound();
             }}
             aria-label="Toggle Sound"
-            className="p-2 rounded-2xl bg-slate-900/90 border border-slate-800 text-slate-300 hover:text-white active:scale-95 transition-all shadow-md"
+            className="min-h-[38px] min-w-[38px] p-2 rounded-2xl bg-slate-900/85 border border-slate-800 text-slate-300 hover:text-white active:scale-95 transition-all shadow-md flex items-center justify-center"
           >
-            {progress.soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-500" />}
+            {progress.soundEnabled ? (
+              <Volume2 className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <VolumeX className="w-4 h-4 text-slate-500" />
+            )}
           </button>
 
           <button
@@ -73,9 +127,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               onToggleMusic();
             }}
             aria-label="Toggle Music"
-            className="p-2 rounded-2xl bg-slate-900/90 border border-slate-800 text-slate-300 hover:text-white active:scale-95 transition-all shadow-md"
+            className="min-h-[38px] min-w-[38px] p-2 rounded-2xl bg-slate-900/85 border border-slate-800 text-slate-300 hover:text-white active:scale-95 transition-all shadow-md flex items-center justify-center"
           >
-            <Music className={`w-4 h-4 ${progress.musicEnabled ? 'text-amber-400' : 'text-slate-500'}`} />
+            <Music
+              className={`w-4 h-4 ${progress.musicEnabled ? 'text-amber-400' : 'text-slate-500'}`}
+            />
           </button>
 
           <button
@@ -84,7 +140,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               onOpenSettings();
             }}
             aria-label="Settings"
-            className="p-2 rounded-2xl bg-slate-900/90 border border-slate-800 text-slate-300 hover:text-white active:scale-95 transition-all shadow-md"
+            className="min-h-[38px] min-w-[38px] p-2 rounded-2xl bg-slate-900/85 border border-slate-800 text-slate-300 hover:text-white active:scale-95 transition-all shadow-md flex items-center justify-center"
           >
             <SettingsIcon className="w-4 h-4" />
           </button>
@@ -93,9 +149,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
       {/* Center 2.5D Brand Hero Lockup */}
       <div className="flex flex-col items-center justify-center my-auto z-10 max-w-xs text-center w-full">
-        {/* Animated 2.5D Glossy Hexagon Logo Mark */}
-        <div className="relative w-36 h-36 mb-3 flex items-center justify-center animate-float">
-          <svg viewBox="0 0 100 115" className="w-full h-full drop-shadow-[0_16px_30px_rgba(244,63,94,0.4)]">
+        <div className="relative w-32 h-32 mb-2.5 flex items-center justify-center animate-float">
+          <svg
+            viewBox="0 0 100 115"
+            className="w-full h-full drop-shadow-[0_16px_30px_rgba(244,63,94,0.4)]"
+          >
             <defs>
               <linearGradient id="logoHexGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#FDA4AF" />
@@ -109,7 +167,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </linearGradient>
             </defs>
 
-            {/* 2.5D Bottom Extrusion */}
             <polygon
               points="50,11 93,36 93,86 50,111 7,86 7,36"
               fill="url(#logoBevelGrad)"
@@ -117,7 +174,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               strokeWidth="1"
             />
 
-            {/* Top Glossy Hexagon Face */}
             <polygon
               points="50,5 93,30 93,80 50,105 7,80 7,30"
               fill="url(#logoHexGrad1)"
@@ -125,7 +181,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               strokeWidth="2.5"
             />
 
-            {/* Top Gloss Curve */}
             <polygon
               points="50,10 88,32 88,75 50,98 12,75 12,32"
               fill="none"
@@ -134,7 +189,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               strokeDasharray="40 50"
             />
 
-            {/* Center Crown Glyph */}
             <text
               x="50"
               y="55"
@@ -148,76 +202,115 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </text>
           </svg>
 
-          {/* Satellite mini-hexagons */}
-          <div className="absolute -top-1 -right-1 w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 via-amber-400 to-amber-200 shadow-lg shadow-amber-500/30 flex items-center justify-center text-amber-950 text-xs font-black border border-white/50 rotate-12">
-            ▲
+          <div className="absolute -top-1 -right-1 w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 via-amber-400 to-amber-200 shadow-lg shadow-amber-500/30 flex items-center justify-center text-amber-950 text-xs font-black border border-white/50 rotate-12">
+            ★
           </div>
-          <div className="absolute -bottom-1 -left-1 w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 via-emerald-400 to-teal-200 shadow-lg shadow-emerald-500/30 flex items-center justify-center text-emerald-950 text-xs font-black border border-white/50 -rotate-12">
-            ●
+          <div className="absolute -bottom-1 -left-1 w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 via-emerald-400 to-teal-200 shadow-lg shadow-emerald-500/30 flex items-center justify-center text-emerald-950 text-xs font-black border border-white/50 -rotate-12">
+            ♣
           </div>
         </div>
 
-        {/* Game Title */}
-        <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-amber-300 to-cyan-300 tracking-tight leading-none mb-1 drop-shadow-sm">
+        <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-300 via-amber-200 to-cyan-200 tracking-tight leading-none mb-1 drop-shadow">
           Hexa Color Quest
         </h1>
-        <p className="text-xs font-semibold text-slate-400 tracking-wide mb-3">
-          Slide · Connect · Merge 100 Levels
+        <p className="text-xs font-semibold text-slate-200/90 tracking-wide mb-3 drop-shadow">
+          Slide · Merge · Infinite Puzzle Quest
         </p>
 
-        {/* Level Progress Indicator Card */}
-        <div className="w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-3 shadow-lg flex flex-col gap-1.5">
+        {/* Level Progress Card */}
+        <div className="w-full bg-slate-900/85 backdrop-blur-md border border-white/15 rounded-2xl p-3 shadow-xl flex flex-col gap-1.5">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-300 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              Level {progress.unlockedLevel} of 100
+            <span className="font-bold text-white">
+              {progress.savedActiveLevel
+                ? `Saved Level ${progress.savedActiveLevel.levelId}`
+                : isInfiniteUnlocked
+                ? `Infinite Level ${progress.unlockedLevel}`
+                : `Level ${progress.unlockedLevel} of 100+`}
             </span>
-            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-950/80 border border-indigo-500/30 text-indigo-300">
+            <span className="text-[11px] font-semibold text-cyan-300">
               {currentLevelConfig.difficulty}
             </span>
           </div>
 
-          {/* Progress Bar */}
-          <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
+          <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-rose-500 rounded-full transition-all duration-500"
-              style={{ width: `${Math.max(5, progressPercent)}%` }}
+              style={{ width: `${Math.max(6, chapterProgressPercent)}%` }}
             />
           </div>
 
-          <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
-            <span>Progress: {progressPercent}%</span>
-            <span>{currentLevelConfig.name}</span>
+          <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium">
+            <span>
+              {progress.savedActiveLevel
+                ? `${progress.savedActiveLevel.movesLeft} moves remaining`
+                : `Scene: ${activeBg.name}`}
+            </span>
+            <span className="truncate max-w-[140px]">{currentLevelConfig.name}</span>
           </div>
         </div>
       </div>
 
-      {/* Bottom CTA Action Buttons */}
-      <div className="w-full max-w-xs flex flex-col gap-2.5 z-10 mb-2">
-        {/* Primary Play Button */}
+      {/* Bottom CTA Action Area */}
+      <div className="w-full max-w-xs flex flex-col gap-2 z-10 mb-1">
+        {/* Primary Play / Resume Button */}
         <button
           onClick={() => {
             audioManager.playClick();
             onPlay();
           }}
-          className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-rose-500 via-amber-500 to-emerald-500 text-white font-black text-base tracking-wide shadow-xl shadow-rose-500/25 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-3 border border-white/20"
+          className="min-h-[52px] w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-rose-500 via-amber-500 to-emerald-500 text-white font-black text-base tracking-wide shadow-xl shadow-rose-500/25 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2.5 border border-white/25 whitespace-nowrap"
         >
-          <Play className="w-5 h-5 fill-current" />
-          <span>{progress.unlockedLevel > 1 ? `Continue Level ${progress.unlockedLevel}` : 'Start Quest'}</span>
-          <ChevronRight className="w-5 h-5" />
+          <Play className="w-5 h-5 fill-current shrink-0" />
+          <span>
+            {progress.savedActiveLevel
+              ? `Resume Level ${progress.savedActiveLevel.levelId}`
+              : progress.unlockedLevel > 1
+              ? `Play Level ${progress.unlockedLevel}`
+              : 'Start Quest'}
+          </span>
+          <ChevronRight className="w-5 h-5 shrink-0" />
         </button>
 
-        {/* 100 Levels & How to Play */}
+        {/* Shop & Daily Rewards Row */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => {
+              audioManager.playClick();
+              onOpenShop('backgrounds');
+            }}
+            className="min-h-[44px] py-2.5 px-3 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-amber-400/35 text-amber-200 font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-2 shadow-md whitespace-nowrap"
+          >
+            <ShoppingBag className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Quest Shop</span>
+          </button>
+
+          <button
+            onClick={() => {
+              audioManager.playClick();
+              onOpenDailyRewards();
+            }}
+            className={`min-h-[44px] py-2.5 px-3 rounded-2xl border font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-2 shadow-md whitespace-nowrap ${
+              dailyStatus.canClaim
+                ? 'bg-gradient-to-r from-amber-500/25 to-rose-500/25 border-amber-400 text-amber-200'
+                : 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 text-slate-200'
+            }`}
+          >
+            <Gift className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{dailyStatus.canClaim ? 'Claim Gift!' : 'Daily Gift'}</span>
+          </button>
+        </div>
+
+        {/* Levels Map & How to Play Row */}
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => {
               audioManager.playClick();
               onLevelSelect();
             }}
-            className="py-3 px-3 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-2 shadow-md"
+            className="min-h-[44px] py-2.5 px-3 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-2 shadow-md whitespace-nowrap"
           >
-            <Grid className="w-4 h-4 text-cyan-400" />
-            <span>100 Levels Map</span>
+            <Grid className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>Levels Map</span>
           </button>
 
           <button
@@ -225,9 +318,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               audioManager.playClick();
               onOpenTutorial();
             }}
-            className="py-3 px-3 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-2 shadow-md"
+            className="min-h-[44px] py-2.5 px-3 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-2 shadow-md whitespace-nowrap"
           >
-            <HelpCircle className="w-4 h-4 text-emerald-400" />
+            <HelpCircle className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>How to Play</span>
           </button>
         </div>

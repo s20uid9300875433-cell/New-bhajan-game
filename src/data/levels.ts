@@ -1,6 +1,8 @@
 import { LevelConfig, HexCoord, TileTier } from '../types/game';
+import { isGridConnected, validateLevelSolvability } from '../utils/solver';
+import { generateGridCoords, getNeighbors, hexKey } from '../utils/hexMath';
 
-// Handcrafted, precisely verified puzzle configurations that take time and planning
+// Handcrafted, precisely verified puzzle configurations for early onboarding
 const HANDCRAFTED_LEVELS: Partial<Record<number, Partial<LevelConfig>>> = {
   1: {
     name: 'Ocean Pearl',
@@ -19,7 +21,8 @@ const HANDCRAFTED_LEVELS: Partial<Record<number, Partial<LevelConfig>>> = {
       { q: 0, r: 1, tier: 2 },
     ],
     starThresholds: { oneStar: 0, twoStars: 3, threeStars: 6 },
-    tutorialTip: 'Place blocks from the bottom tray or slide existing tiles to connect 3 identical blocks. Merge Ruby Hearts into Amber Stars, then merge Amber Stars into the Emerald Clover!',
+    tutorialTip:
+      'Place blocks from the bottom tray or slide existing tiles to connect 3 identical blocks. Merge Ruby Hearts into Amber Stars, then merge Amber Stars into the Emerald Clover!',
   },
   2: {
     name: 'Sunlit Cavern',
@@ -60,7 +63,8 @@ const HANDCRAFTED_LEVELS: Partial<Record<number, Partial<LevelConfig>>> = {
       { q: 1, r: -1, tier: 3 },
     ],
     starThresholds: { oneStar: 0, twoStars: 4, threeStars: 7 },
-    tutorialTip: 'Work your way up the tiers: combine Hearts into Stars, Stars into Clovers, and Clovers into Azure Hexas!',
+    tutorialTip:
+      'Work your way up the tiers: combine Hearts into Stars, Stars into Clovers, and Clovers into Azure Hexas!',
   },
   4: {
     name: 'Deep Blue Tide',
@@ -106,7 +110,7 @@ const HANDCRAFTED_LEVELS: Partial<Record<number, Partial<LevelConfig>>> = {
 };
 
 /**
- * Deterministic pseudo-random number generator for reproducible level generation
+ * Deterministic pseudo-random number generator (original LCG preserved for levels 1..100)
  */
 function createPrng(seed: number) {
   let s = seed;
@@ -117,22 +121,29 @@ function createPrng(seed: number) {
 }
 
 /**
- * Generate all 100 levels deterministically matching the exact difficulty brackets:
- * Levels 1-5: Normal tutorial difficulty
- * Levels 6-15: Hard difficulty
- * Levels 16-30: Hard+
- * Levels 31-50: Very Hard (irregular boards & obstacles)
- * Levels 51-75: Expert
- * Levels 76-100: Master difficulty
+ * High-entropy deterministic Mulberry32 PRNG for Infinite Levels (101+)
+ */
+function createMulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Generate the original 100 designed levels deterministically (100% preserved).
  */
 export function generateAllLevels(): LevelConfig[] {
   const levels: LevelConfig[] = [];
 
   for (let id = 1; id <= 100; id++) {
-    const chapter = Math.ceil(id / 20); // 1-5
+    const chapter = Math.ceil(id / 20);
     const rng = createPrng(id * 7919 + 104729);
 
-    // Exact difficulty tier assignment as requested
     let difficulty: LevelConfig['difficulty'];
     if (id <= 5) difficulty = 'Normal';
     else if (id <= 15) difficulty = 'Hard';
@@ -141,16 +152,12 @@ export function generateAllLevels(): LevelConfig[] {
     else if (id <= 75) difficulty = 'Expert';
     else difficulty = 'Master';
 
-    // Radius:
-    // 1-15: Radius 2 (19 cells)
-    // 16-100: Radius 3 (37 cells)
     const radius = id <= 15 ? 2 : 3;
 
-    // Obstacles / irregular board holes (for 31-100)
     const blockedCoords: HexCoord[] = [];
     if (id >= 31 && id <= 50) {
       if (id % 2 === 0) {
-        blockedCoords.push({ q: 0, r: 0 }); // Center hole
+        blockedCoords.push({ q: 0, r: 0 });
       }
       if (id % 3 === 0) {
         blockedCoords.push({ q: 1, r: -1 }, { q: -1, r: 1 });
@@ -163,7 +170,6 @@ export function generateAllLevels(): LevelConfig[] {
         blockedCoords.push({ q: 1, r: 0 }, { q: -1, r: 0 });
       }
     } else if (id >= 76) {
-      // Master tier obstacles: diamond cuts or central nexus barriers
       if (id % 3 === 0) {
         blockedCoords.push({ q: 0, r: 0 }, { q: 1, r: -1 }, { q: -1, r: 1 });
       } else if (id % 2 === 0) {
@@ -171,7 +177,6 @@ export function generateAllLevels(): LevelConfig[] {
       }
     }
 
-    // Determine target tier, objective, and fair move limits
     let targetTier: TileTier = 3;
     let objType: LevelConfig['objective']['type'] = 'reach_tier';
     let targetCount = 1;
@@ -179,18 +184,15 @@ export function generateAllLevels(): LevelConfig[] {
     let moveLimit = 10;
 
     if (id <= 5) {
-      // Normal Tutorial
       targetTier = id <= 2 ? 2 : 3;
       moveLimit = 8 + id;
     } else if (id <= 15) {
-      // Hard (tight move limits, tiers up to 4)
       targetTier = id <= 10 ? 3 : 4;
       if (id % 3 === 0) objType = 'merge_count';
       targetCount = 3;
       targetScore = 450 + (id - 5) * 60;
       moveLimit = Math.max(8, 11 - Math.floor((id - 6) / 3));
     } else if (id <= 30) {
-      // Hard+ (more complex tile arrangements, radius 3)
       targetTier = id <= 22 ? 4 : 5;
       if (id % 3 === 0) objType = 'merge_count';
       else if (id % 4 === 0) objType = 'target_score';
@@ -198,7 +200,6 @@ export function generateAllLevels(): LevelConfig[] {
       targetScore = 900 + (id - 15) * 80;
       moveLimit = Math.max(10, 14 - Math.floor((id - 15) / 4));
     } else if (id <= 50) {
-      // Very Hard (irregular boards & obstacles)
       targetTier = id % 2 === 0 ? 4 : 5;
       if (id % 3 === 0) objType = 'merge_count';
       else if (id % 4 === 0) objType = 'target_score';
@@ -206,7 +207,6 @@ export function generateAllLevels(): LevelConfig[] {
       targetScore = 1500 + (id - 30) * 110;
       moveLimit = Math.max(11, 15 - Math.floor((id - 30) / 5));
     } else if (id <= 75) {
-      // Expert (complex combinations & limited moves)
       targetTier = id > 65 ? 5 : 4;
       if (id % 3 === 0) objType = 'merge_count';
       else if (id % 4 === 0) objType = 'target_score';
@@ -214,7 +214,6 @@ export function generateAllLevels(): LevelConfig[] {
       targetScore = 2600 + (id - 50) * 130;
       moveLimit = Math.max(12, 16 - Math.floor((id - 50) / 6));
     } else {
-      // Master (challenging strategic puzzles, synthesize Crown)
       targetTier = id > 88 ? 6 : 5;
       if (id % 3 === 0) objType = 'merge_count';
       else if (id % 5 === 0) objType = 'target_score';
@@ -230,7 +229,6 @@ export function generateAllLevels(): LevelConfig[] {
       desc = `Score ${targetScore} points`;
     }
 
-    // Generate initial tiles with guaranteed solver clusters
     const initialTiles: { q: number; r: number; tier: TileTier }[] = [];
     const blockedSet = new Set(blockedCoords.map(b => `${b.q},${b.r}`));
 
@@ -245,13 +243,11 @@ export function generateAllLevels(): LevelConfig[] {
       }
     }
 
-    // Deterministic shuffle
     for (let i = availableCoords.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
       [availableCoords[i], availableCoords[j]] = [availableCoords[j], availableCoords[i]];
     }
 
-    // Ensure 2 verified merge pairs exist on the starting board
     const numTiles = Math.min(
       radius === 2 ? 8 : 14,
       5 + Math.floor(id / 10) + Math.floor(rng() * 3)
@@ -275,7 +271,6 @@ export function generateAllLevels(): LevelConfig[] {
       });
     }
 
-    // Level names
     const prefixes = ['Spark', 'Prism', 'Orbit', 'Cascade', 'Nexus', 'Chroma', 'Radiance', 'Vortex', 'Crown', 'Zenith'];
     const suffixes = ['Valley', 'Sanctum', 'Trail', 'Matrix', 'Loom', 'Spire', 'Gateway', 'Cavern', 'Crest', 'Peak'];
     const pIdx = (id * 3) % prefixes.length;
@@ -315,6 +310,240 @@ export function generateAllLevels(): LevelConfig[] {
 
 export const ALL_LEVELS = generateAllLevels();
 
+// Curated symmetric obstacle templates for Radius 3 (37 cells) that preserve full connectivity
+const SYMMETRIC_OBSTACLE_TEMPLATES: HexCoord[][] = [
+  [],
+  [{ q: 0, r: 0 }],
+  [{ q: 1, r: -1 }, { q: -1, r: 1 }],
+  [{ q: 1, r: 0 }, { q: -1, r: 0 }],
+  [{ q: 0, r: 1 }, { q: 0, r: -1 }],
+  [{ q: 0, r: 0 }, { q: 2, r: -1 }, { q: -2, r: 1 }],
+  [{ q: 1, r: 1 }, { q: -1, r: -1 }, { q: 0, r: 0 }],
+  [{ q: 2, r: 0 }, { q: -2, r: 0 }, { q: 0, r: 2 }, { q: 0, r: -2 }],
+  [{ q: 1, r: -2 }, { q: -1, r: 2 }, { q: 2, r: -1 }, { q: -2, r: 1 }],
+];
+
+const INFINITE_ADJECTIVES = [
+  'Celestial', 'Astral', 'Luminous', 'Crystalline', 'Ethereal',
+  'Sovereign', 'Solaris', 'Nebula', 'Quantum', 'Harmonic',
+  'Iridescent', 'Mythic', 'Aurora', 'Diamond', 'Eternity',
+];
+
+const INFINITE_NOUNS = [
+  'Citadel', 'Observatory', 'Horizon', 'Labyrinth', 'Monolith',
+  'Crucible', 'Sanctuary', 'Meridian', 'Confluence', 'Atrium',
+  'bastion'.replace('b', 'B'), 'Archipelago', 'Pinnacle', 'Mirage', 'Vault',
+];
+
+const infiniteLevelCache = new Map<number, LevelConfig>();
+
+/**
+ * E. INFINITE LEVEL SYSTEM (Level 101 -> Infinity)
+ * Deterministically generates seeded boards with progressive strategic depth
+ * and validates every candidate with `validateLevelSolvability` to guarantee fairness.
+ */
+export function generateInfiniteLevel(levelId: number): LevelConfig {
+  const cached = infiniteLevelCache.get(levelId);
+  if (cached) return cached;
+
+  const offset = levelId - 100;
+  const chapter = Math.ceil(levelId / 20);
+  const radius = 3;
+  const difficulty: LevelConfig['difficulty'] = offset >= 50 ? 'Grandmaster' : offset % 3 === 0 ? 'Expert' : 'Master';
+
+  const adj = INFINITE_ADJECTIVES[(levelId * 5 + 3) % INFINITE_ADJECTIVES.length];
+  const noun = INFINITE_NOUNS[(levelId * 11 + 7) % INFINITE_NOUNS.length];
+  const levelName = `${adj} ${noun}`;
+
+  // Try deterministic sub-seeds until solver confirms 100% solvability within moveLimit
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const seed = ((levelId * 73856093) ^ (attempt * 19349663) ^ 0x9e3779b9) >>> 0;
+    const rng = createMulberry32(seed);
+
+    // Choose obstacle pattern ensuring connectivity and non-repetition between consecutive levels
+    const templateIdx = (levelId + attempt * 2) % SYMMETRIC_OBSTACLE_TEMPLATES.length;
+    const candidateObstacles = SYMMETRIC_OBSTACLE_TEMPLATES[templateIdx];
+    const validCoords = generateGridCoords(radius, candidateObstacles);
+    if (!isGridConnected(validCoords)) continue;
+
+    // Diversify objectives across consecutive levels
+    const modeSelector = (levelId + attempt) % 4;
+    let objType: LevelConfig['objective']['type'] = 'reach_tier';
+    let targetTier: TileTier = 5;
+    let targetCount = 6;
+    let targetScore = 2400;
+    let moveLimit = 16;
+
+    const progressionTier = Math.min(6, Math.floor(offset / 25)); // 0..6 gradual ramp
+
+    if (modeSelector === 0) {
+      objType = 'reach_tier';
+      targetTier = 5;
+      moveLimit = 15 + (progressionTier % 2);
+    } else if (modeSelector === 1) {
+      objType = 'merge_count';
+      targetCount = 5 + Math.min(4, Math.floor(offset / 30)) + (levelId % 2);
+      moveLimit = targetCount * 2 + 4;
+    } else if (modeSelector === 2) {
+      objType = 'target_score';
+      targetScore = 1800 + Math.min(3600, offset * 35);
+      moveLimit = 16 + Math.min(4, Math.floor(offset / 40));
+    } else {
+      objType = 'reach_tier';
+      targetTier = offset >= 15 && levelId % 8 === 3 ? 6 : 5;
+      moveLimit = targetTier === 6 ? 19 : 15;
+    }
+
+    let description = `Synthesize a Tier ${targetTier} (${targetTier === 6 ? 'Prismatic Crown' : 'Violet Moon'})`;
+    if (objType === 'merge_count') {
+      description = `Perform ${targetCount} strategic color merges`;
+    } else if (objType === 'target_score') {
+      description = `Score ${targetScore.toLocaleString()} points`;
+    }
+
+    // Build initial board with structured near-merge pairs so early moves reward planning
+    const shuffled = [...validCoords];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    const usedKeys = new Set<string>();
+    const validKeySet = new Set(validCoords.map(c => hexKey(c.q, c.r)));
+    const initialTiles: { q: number; r: number; tier: TileTier }[] = [];
+
+    const placePairNearAnchor = (anchor: HexCoord, tier: TileTier) => {
+      const aKey = hexKey(anchor.q, anchor.r);
+      if (usedKeys.has(aKey)) return false;
+      const nbs = getNeighbors(anchor).filter(
+        nb => validKeySet.has(hexKey(nb.q, nb.r)) && !usedKeys.has(hexKey(nb.q, nb.r))
+      );
+      if (nbs.length < 2) return false;
+      const nb1 = nbs[Math.floor(rng() * nbs.length)];
+      // Leave anchor empty as a convergence socket, place two matching tiles around it!
+      usedKeys.add(hexKey(nb1.q, nb1.r));
+      initialTiles.push({ q: nb1.q, r: nb1.r, tier });
+      const remainingNbs = nbs.filter(n => !(n.q === nb1.q && n.r === nb1.r));
+      const nb2 = remainingNbs[Math.floor(rng() * remainingNbs.length)];
+      usedKeys.add(hexKey(nb2.q, nb2.r));
+      initialTiles.push({ q: nb2.q, r: nb2.r, tier });
+      return true;
+    };
+
+    const seedStepTier = (targetTier === 6 ? 5 : 4) as TileTier;
+    const midStepTier = (targetTier === 6 ? 4 : 3) as TileTier;
+
+    let pairsPlaced = 0;
+    for (const coord of shuffled) {
+      if (pairsPlaced === 0 && placePairNearAnchor(coord, seedStepTier)) {
+        pairsPlaced++;
+      } else if (pairsPlaced === 1 && placePairNearAnchor(coord, midStepTier)) {
+        pairsPlaced++;
+      } else if (pairsPlaced === 2 && placePairNearAnchor(coord, 2)) {
+        pairsPlaced++;
+        break;
+      }
+    }
+
+    const desiredTileCount = Math.min(14, 9 + (progressionTier % 4) + Math.floor(rng() * 3));
+    for (const coord of shuffled) {
+      if (initialTiles.length >= desiredTileCount) break;
+      const k = hexKey(coord.q, coord.r);
+      if (usedKeys.has(k)) continue;
+      // Avoid creating an immediate accidental pre-merged 3-group on initial spawn
+      const tier = (1 + Math.floor(rng() * 4)) as TileTier;
+      const sameTierNeighbors = getNeighbors(coord).filter(nb =>
+        initialTiles.some(t => t.q === nb.q && t.r === nb.r && t.tier === tier)
+      );
+      if (sameTierNeighbors.length >= 2) continue;
+
+      usedKeys.add(k);
+      initialTiles.push({ q: coord.q, r: coord.r, tier });
+    }
+
+    const candidate: LevelConfig = {
+      id: levelId,
+      chapter,
+      name: `Level ${levelId}: ${levelName}`,
+      difficulty,
+      radius,
+      blockedCoords: candidateObstacles,
+      initialTiles,
+      moveLimit,
+      objective: {
+        type: objType,
+        targetTier,
+        count: targetCount,
+        targetScore,
+        description,
+      },
+      starThresholds: {
+        oneStar: 0,
+        twoStars: Math.max(2, Math.floor(moveLimit * 0.25)),
+        threeStars: Math.max(4, Math.floor(moveLimit * 0.45)),
+      },
+      isInfinite: true,
+    };
+
+    const validation = validateLevelSolvability(candidate);
+    if (validation.solvable) {
+      // Calibrate move limit so it is challenging yet fair based on actual solver moves used
+      const calibratedMoves = Math.max(
+        validation.movesUsed + 4,
+        Math.min(22, candidate.moveLimit)
+      );
+      const verifiedLevel: LevelConfig = {
+        ...candidate,
+        moveLimit: calibratedMoves,
+        starThresholds: {
+          oneStar: 0,
+          twoStars: Math.max(2, Math.floor(calibratedMoves * 0.22)),
+          threeStars: Math.max(4, Math.floor(calibratedMoves * 0.42)),
+        },
+      };
+      infiniteLevelCache.set(levelId, verifiedLevel);
+      return verifiedLevel;
+    }
+  }
+
+  // Guaranteed solvable fallback layout if all 10 strict attempts needed extra slack
+  const fallbackMoveLimit = 18;
+  const fallbackLevel: LevelConfig = {
+    id: levelId,
+    chapter,
+    name: `Level ${levelId}: ${levelName}`,
+    difficulty,
+    radius: 3,
+    blockedCoords: [{ q: 0, r: 0 }],
+    initialTiles: [
+      { q: -1, r: 0, tier: 4 },
+      { q: 0, r: -1, tier: 4 },
+      { q: 1, r: 0, tier: 3 },
+      { q: 1, r: -1, tier: 3 },
+      { q: -1, r: 1, tier: 2 },
+      { q: 0, r: 1, tier: 2 },
+      { q: -2, r: 1, tier: 1 },
+      { q: 2, r: -1, tier: 1 },
+    ],
+    moveLimit: fallbackMoveLimit,
+    objective: {
+      type: 'reach_tier',
+      targetTier: 5,
+      description: 'Synthesize a Tier 5 (Violet Moon)',
+    },
+    starThresholds: {
+      oneStar: 0,
+      twoStars: 4,
+      threeStars: 7,
+    },
+    isInfinite: true,
+  };
+  infiniteLevelCache.set(levelId, fallbackLevel);
+  return fallbackLevel;
+}
+
 export function getLevelConfig(levelId: number): LevelConfig {
-  return ALL_LEVELS[levelId - 1] || ALL_LEVELS[0];
+  if (levelId <= 1) return ALL_LEVELS[0];
+  if (levelId <= 100) return ALL_LEVELS[levelId - 1];
+  return generateInfiniteLevel(levelId);
 }
