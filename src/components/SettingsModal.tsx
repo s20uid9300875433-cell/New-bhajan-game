@@ -19,7 +19,7 @@ import {
 } from '../data/shopCatalog';
 import { audioManager } from '../utils/audioManager';
 
-interface SettingsModalProps {
+export interface SettingsModalProps {
   isOpen: boolean;
   progress: UserProgress;
   onClose: () => void;
@@ -28,10 +28,10 @@ interface SettingsModalProps {
   onToggleHaptics: () => void;
   onChangeSoundVolume: (vol: number) => void;
   onChangeMusicVolume: (vol: number) => void;
-  onChangeGraphicsQuality: (quality: GraphicsQuality) => void;
-  onSelectBackground: (bgId: string) => void;
-  onSelectTileSkin: (skinId: string) => void;
-  onOpenShopCategory: (category: ShopCategory) => void;
+  onChangeGraphicsQuality?: (quality: GraphicsQuality) => void;
+  onSelectBackground?: (bgId: string) => void;
+  onSelectTileSkin?: (skinId: string) => void;
+  onOpenShopCategory?: (category: ShopCategory) => void;
   onResetProgress: () => void;
 }
 
@@ -224,7 +224,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     key={q}
                     onClick={() => {
                       audioManager.playClick();
-                      onChangeGraphicsQuality(q);
+                      onChangeGraphicsQuality?.(q);
                     }}
                     className={`min-h-[34px] py-1.5 px-2 rounded-lg text-xs font-bold capitalize transition-all whitespace-nowrap ${
                       active
@@ -250,7 +250,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClick={() => {
                   audioManager.playClick();
                   onClose();
-                  onOpenShopCategory('backgrounds');
+                  onOpenShopCategory?.('backgrounds');
                 }}
                 className="text-[11px] font-bold text-amber-300 hover:text-amber-200 flex items-center gap-1"
               >
@@ -267,7 +267,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     key={bg.id}
                     onClick={() => {
                       audioManager.playSelect();
-                      onSelectBackground(bg.id);
+                      onSelectBackground?.(bg.id);
                     }}
                     className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all whitespace-nowrap shrink-0 ${
                       selected
@@ -293,7 +293,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClick={() => {
                   audioManager.playClick();
                   onClose();
-                  onOpenShopCategory('tiles');
+                  onOpenShopCategory?.('tiles');
                 }}
                 className="text-[11px] font-bold text-amber-300 hover:text-amber-200 flex items-center gap-1"
               >
@@ -310,7 +310,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     key={skin.id}
                     onClick={() => {
                       audioManager.playSelect();
-                      onSelectTileSkin(skin.id);
+                      onSelectTileSkin?.(skin.id);
                     }}
                     className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all whitespace-nowrap shrink-0 ${
                       selected

@@ -1,13 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { GameScreenState, UserProgress } from './types/game';
-import { loadUserProgress, saveUserProgress } from './utils/storage';
+import { GameScreenState, ShopCategory, UserProgress } from './types/game';
+import {
+  loadUserProgress,
+  saveUserProgress,
+  purchaseShopItem,
+  selectShopItem,
+  exchangeGemsForCoins,
+  claimDailyReward,
+  claimUniqueBonusReward,
+} from './utils/storage';
 import { audioManager } from './utils/audioManager';
+import { adManager, AdModalState, AdReward } from './utils/adManager';
 import { AndroidFrame } from './components/AndroidFrame';
 import { HomeScreen } from './components/HomeScreen';
 import { LevelSelectScreen } from './components/LevelSelectScreen';
 import { GameScreen } from './components/GameScreen';
+import { ShopScreen } from './components/ShopScreen';
 import { SettingsModal } from './components/SettingsModal';
+import { DailyRewardsModal } from './components/DailyRewardsModal';
 import { TutorialModal } from './components/TutorialModal';
+import { SimulatedAdModal } from './components/SimulatedAdModal';
 import { KotlinCodeViewer } from './components/KotlinCodeViewer';
 
 export default function App() {
@@ -16,9 +28,18 @@ export default function App() {
   const [currentLevelId, setCurrentLevelId] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<'game' | 'code'>('game');
 
-  // Modals accessible from Home Screen
+  // Modals & Shop Navigation
+  const [shopCategory, setShopCategory] = useState<ShopCategory>('backgrounds');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+  const [isDailyRewardsOpen, setIsDailyRewardsOpen] = useState(false);
+
+  // Global Simulated Ad State (for Shop and Daily Rewards on non-playing screens)
+  const [adState, setAdState] = useState<AdModalState>({
+    isOpen: false,
+    type: 'rewarded',
+    status: 'ready',
+  });
 
   // Sync Audio on initial mount
   useEffect(() => {
@@ -30,6 +51,15 @@ export default function App() {
     // Sync unlocked level to current level id if not set
     setCurrentLevelId(progress.unlockedLevel);
   }, []);
+
+  // Subscribe to adManager for ads outside of gameplay (Shop, Daily Rewards)
+  useEffect(() => {
+    return adManager.subscribe((state: AdModalState) => {
+      if (screen !== 'playing') {
+        setAdState(state);
+      }
+    });
+  }, [screen]);
 
   const handleUpdateProgress = (newProgress: UserProgress) => {
     setProgress(newProgress);
@@ -77,6 +107,11 @@ export default function App() {
               progress={progress}
               onPlay={handlePlayCurrentLevel}
               onLevelSelect={() => setScreen('levels')}
+              onOpenShop={(category?: ShopCategory) => {
+                if (category) setShopCategory(category);
+                setScreen('shop');
+              }}
+              onOpenDailyRewards={() => setIsDailyRewardsOpen(true)}
               onOpenSettings={() => setIsSettingsOpen(true)}
               onOpenTutorial={() => setIsTutorialOpen(true)}
               onToggleSound={handleToggleSound}
@@ -89,6 +124,32 @@ export default function App() {
               progress={progress}
               onSelectLevel={handleSelectLevel}
               onBackToHome={() => setScreen('home')}
+            />
+          )}
+
+          {screen === 'shop' && (
+            <ShopScreen
+              progress={progress}
+              initialCategory={shopCategory}
+              onBack={() => setScreen('home')}
+              onPurchaseItem={(category, itemId, price, priceType) => {
+                const res = purchaseShopItem(progress, category, itemId, price, priceType);
+                if (res.success) handleUpdateProgress(res.updatedProgress);
+              }}
+              onSelectItem={(category, itemId) => {
+                const res = selectShopItem(progress, category, itemId);
+                if (res.success) handleUpdateProgress(res.updatedProgress);
+              }}
+              onWatchAdForCoins={() => {
+                adManager.showRewardedAd({ type: 'coins', amount: 100 }, token => {
+                  const res = claimUniqueBonusReward(progress, token, 100);
+                  if (res.success) handleUpdateProgress(res.updatedProgress);
+                });
+              }}
+              onExchangeGems={() => {
+                const res = exchangeGemsForCoins(progress);
+                if (res.success) handleUpdateProgress(res.updatedProgress);
+              }}
             />
           )}
 
@@ -106,11 +167,7 @@ export default function App() {
           {/* Global Modals */}
           <SettingsModal
             isOpen={isSettingsOpen}
-            soundEnabled={progress.soundEnabled}
-            musicEnabled={progress.musicEnabled}
-            hapticsEnabled={progress.hapticsEnabled}
-            soundVolume={progress.soundVolume}
-            musicVolume={progress.musicVolume}
+            progress={progress}
             onClose={() => setIsSettingsOpen(false)}
             onToggleSound={handleToggleSound}
             onToggleMusic={handleToggleMusic}
@@ -128,9 +185,51 @@ export default function App() {
               handleUpdateProgress(updated);
               audioManager.setMusicVolume(vol);
             }}
+            onChangeGraphicsQuality={quality => {
+              const updated = { ...progress, graphicsQuality: quality };
+              handleUpdateProgress(updated);
+            }}
+            onSelectBackground={bgId => {
+              const res = selectShopItem(progress, 'backgrounds', bgId);
+              if (res.success) handleUpdateProgress(res.updatedProgress);
+            }}
+            onSelectTileSkin={skinId => {
+              const res = selectShopItem(progress, 'tiles', skinId);
+              if (res.success) handleUpdateProgress(res.updatedProgress);
+            }}
+            onOpenShopCategory={category => {
+              setShopCategory(category);
+              setScreen('shop');
+            }}
             onResetProgress={() => {
               localStorage.clear();
               window.location.reload();
+            }}
+          />
+
+          <DailyRewardsModal
+            isOpen={isDailyRewardsOpen}
+            progress={progress}
+            onClose={() => setIsDailyRewardsOpen(false)}
+            onClaimDaily={() => {
+              const res = claimDailyReward(progress);
+              if (res.success) {
+                handleUpdateProgress(res.updatedProgress);
+              }
+              return {
+                success: res.success,
+                coinsAdded: res.coinsAdded,
+                gemsAdded: res.gemsAdded,
+                dayClaimed: res.dayClaimed,
+              };
+            }}
+            onWatchBonusAd={() => {
+              adManager.showRewardedAd({ type: 'coins', amount: 150 }, token => {
+                const res = claimUniqueBonusReward(progress, token, 150, 1);
+                if (res.success) {
+                  handleUpdateProgress(res.updatedProgress);
+                }
+              });
             }}
           />
 
@@ -138,6 +237,14 @@ export default function App() {
             isOpen={isTutorialOpen}
             onClose={() => setIsTutorialOpen(false)}
           />
+
+          {screen !== 'playing' && (
+            <SimulatedAdModal
+              adState={adState}
+              onComplete={() => adManager.completeReward()}
+              onDismiss={() => adManager.dismissAd()}
+            />
+          )}
         </>
       )}
     </AndroidFrame>

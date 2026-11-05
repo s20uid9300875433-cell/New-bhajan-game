@@ -22,7 +22,7 @@ import { findConnectedGroup, generateGridCoords, getNeighbors, hexKey, areCoords
 import { audioManager } from '../utils/audioManager';
 import { findBestMoveHint, HintSuggestion } from '../utils/solver';
 import { updateLevelCompletion, saveUserProgress } from '../utils/storage';
-import { adManager, AdReward } from '../utils/adManager';
+import { adManager, AdModalState, AdReward } from '../utils/adManager';
 import { getTierInfo } from '../data/tiers';
 
 interface GameScreenProps {
@@ -78,15 +78,15 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   const [coinsEarned, setCoinsEarned] = useState(0);
 
   // Ad Simulation Modal
-  const [adModalOpen, setAdModalOpen] = useState(false);
-  const [adType, setAdType] = useState<'rewarded' | 'interstitial'>('rewarded');
-  const [adReward, setAdReward] = useState<AdReward | undefined>();
+  const [adState, setAdState] = useState<AdModalState>({
+    isOpen: false,
+    type: 'rewarded',
+    status: 'ready',
+  });
 
   useEffect(() => {
-    return adManager.subscribe((isOpen, type, reward) => {
-      setAdModalOpen(isOpen);
-      setAdType(type);
-      setAdReward(reward);
+    return adManager.subscribe((state: AdModalState) => {
+      setAdState(state);
     });
   }, []);
 
@@ -949,6 +949,14 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           setIsPaused(false);
           onExitToLevelSelect();
         }}
+        onGoHome={() => {
+          setIsPaused(false);
+          onExitToHome();
+        }}
+        onOpenShop={() => {
+          setIsPaused(false);
+          onExitToHome();
+        }}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onToggleSound={() => {
           const updated = { ...progress, soundEnabled: !progress.soundEnabled };
@@ -975,6 +983,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         onNextLevel={handleNextLevel}
         onReplay={initLevel}
         onLevelSelect={onExitToLevelSelect}
+        onOpenShop={() => {
+          setIsVictory(false);
+          onExitToHome();
+        }}
       />
 
       <GameOverModal
@@ -989,11 +1001,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
       <SettingsModal
         isOpen={isSettingsOpen}
-        soundEnabled={progress.soundEnabled}
-        musicEnabled={progress.musicEnabled}
-        hapticsEnabled={progress.hapticsEnabled}
-        soundVolume={progress.soundVolume}
-        musicVolume={progress.musicVolume}
+        progress={progress}
         onClose={() => setIsSettingsOpen(false)}
         onToggleSound={() => {
           const updated = { ...progress, soundEnabled: !progress.soundEnabled };
@@ -1024,6 +1032,25 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           audioManager.setMusicVolume(vol);
           onUpdateProgress(updated);
         }}
+        onChangeGraphicsQuality={quality => {
+          const updated = { ...progress, graphicsQuality: quality };
+          saveUserProgress(updated);
+          onUpdateProgress(updated);
+        }}
+        onSelectBackground={bgId => {
+          const updated = { ...progress, selectedBackground: bgId };
+          saveUserProgress(updated);
+          onUpdateProgress(updated);
+        }}
+        onSelectTileSkin={skinId => {
+          const updated = { ...progress, selectedTileSkin: skinId };
+          saveUserProgress(updated);
+          onUpdateProgress(updated);
+        }}
+        onOpenShopCategory={() => {
+          setIsSettingsOpen(false);
+          onExitToHome();
+        }}
         onResetProgress={() => {
           localStorage.clear();
           window.location.reload();
@@ -1031,9 +1058,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       />
 
       <SimulatedAdModal
-        isOpen={adModalOpen}
-        type={adType}
-        reward={adReward}
+        adState={adState}
         onComplete={() => adManager.completeReward()}
         onDismiss={() => adManager.dismissAd()}
       />
